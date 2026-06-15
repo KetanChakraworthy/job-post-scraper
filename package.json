@@ -1,0 +1,21 @@
+{
+  "name": "job-post-scraper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "crawlee": "node src/index.js --scraper=crawlee",
+    "jobspy": "node src/index.js --scraper=jobspy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "crawlee": "^3.17.0",
+    "mongodb": "^7.3.0",
+    "playwright": "^1.60.0",
+    "ts-jobspy": "^2.0.3"
+  }
+}
