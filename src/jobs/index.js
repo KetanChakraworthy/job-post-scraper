@@ -83,7 +83,7 @@ export const runJobScraper = async ({
     },
   });
 
-  await crawler.run([startUrl]);
+  await crawler.run(startUrl);
 
   await client.close();
   console.log("Finished deep scraping! MongoDB connection closed.");
