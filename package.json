@@ -14,6 +14,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "crawlee": "^3.17.0",
+    "dotenv": "^17.4.2",
     "mongodb": "^7.3.0",
     "playwright": "^1.60.0",
     "ts-jobspy": "^2.0.3"

@@ -55,108 +55,112 @@ export const handleSearchPage = async ({ page, enqueueLinks, log }) => {
   });
 };
 
-const extractJobDetails = async (page, url) => {
-  return await page.evaluate((currentUrl) => {
-    const title = document
-      .querySelector("h1.top-card-layout__title")
-      ?.innerText?.trim();
-    const companyName = document
-      .querySelector("a.topcard__org-name-link")
-      ?.innerText?.trim();
-    const companyLinkedinUrl = document.querySelector(
-      "a.topcard__org-name-link",
-    )?.href;
-    const companyLogo = document.querySelector("img.artdeco-entity-image")?.src;
-    const location = document
-      .querySelector("span.topcard__flavor--bullet")
-      ?.innerText?.trim();
-    const postedAt = document
-      .querySelector("span.posted-time-ago__text")
-      ?.innerText?.trim();
-    const applicantsCount = document
-      .querySelector("span.num-applicants__caption")
-      ?.innerText?.trim();
+const extractJobDetails = ($, currentUrl) => {
+  const title = $("h1.top-card-layout__title, .topcard__title").text().trim();
+  const companyName = $("a.topcard__org-name-link").first().text().trim();
+  const companyLinkedinUrl = $("a.topcard__org-name-link").first().attr("href");
+  const companyLogo = $("img.artdeco-entity-image, img.topcard__logo").attr(
+    "src",
+  );
 
-    const descContainer = document.querySelector(".description__text");
-    const descriptionHtml = descContainer
-      ? descContainer.innerHTML.trim()
-      : null;
-    const descriptionText = descContainer
-      ? descContainer.innerText.trim()
-      : null;
+  // LinkedIn guest pages use slightly fluid selectors for location & time
+  const location = $("span.topcard__flavor--bullet, .topcard__flavor--last")
+    .first()
+    .text()
+    .trim();
+  const postedAt = $("span.posted-time-ago__text, .topcard__flavor--metadata")
+    .first()
+    .text()
+    .trim();
+  const applicantsCount = $(
+    "span.num-applicants__caption, .topcard__flavor--applicants",
+  )
+    .text()
+    .trim();
 
-    const criteriaItems = Array.from(
-      document.querySelectorAll(".description__job-criteria-item"),
-    );
-    const criteria = {};
-    criteriaItems.forEach((item) => {
-      const header = item
-        .querySelector(".description__job-criteria-subheader")
-        ?.innerText?.trim();
-      const value = item
-        .querySelector(".description__job-criteria-text")
-        ?.innerText?.trim();
-      if (header && value) {
-        criteria[header] = value;
-      }
-    });
+  const descContainer = $(".description__text");
+  const descriptionHtml = descContainer.length
+    ? descContainer.html().trim()
+    : null;
+  const descriptionText = descContainer.length
+    ? descContainer.text().trim()
+    : null;
 
-    return {
-      id: currentUrl.split("/view/")[1]?.split("?")[0] || null,
-      link: currentUrl,
-      title: title || null,
-      companyName: companyName || null,
-      companyLinkedinUrl: companyLinkedinUrl || null,
-      companyLogo: companyLogo || null,
-      location: location || null,
-      postedAt: postedAt || null,
-      applicantsCount: applicantsCount || null,
-      descriptionHtml,
-      descriptionText,
-      seniorityLevel: criteria["Seniority level"] || null,
-      employmentType: criteria["Employment type"] || null,
-      jobFunction: criteria["Job function"] || null,
-      industries: criteria["Industries"] || null,
-    };
-  }, url);
-};
-export const requestHandler = async (context) => {
-  const { page, request, log } = context;
-  const url = new URL(request.url);
-  const naturalDelay = Math.floor(Math.random() * 2000) + 1500;
-  await new Promise((res) => setTimeout(res, naturalDelay));
+  // Map the bottom criteria table items (Employment Type, Seniority, etc.)
+  const criteria = {};
+  $(".description__job-criteria-item").each((_, item) => {
+    const header = $(item)
+      .find(".description__job-criteria-subheader")
+      .text()
+      .trim();
+    const value = $(item).find(".description__job-criteria-text").text().trim();
+    if (header && value) {
+      criteria[header] = value;
+    }
+  });
 
-  // Check if we were redirected to a login/checkpoint page
-  const currentUrl = page.url();
-  if (
-    currentUrl.includes("linkedin.com/checkpoint") ||
-    currentUrl.includes("linkedin.com/signup") ||
-    currentUrl.includes("linkedin.com/login")
-  ) {
-    throw new Error("LinkedIn blocked: Redirected to login/checkpoint wall.");
+  // Safe fallback to grab Job ID from either URL format style
+  let jobId = null;
+  if (currentUrl.includes("/view/")) {
+    jobId = currentUrl.split("/view/")[1]?.split("?")[0];
+  } else {
+    jobId = currentUrl.split("-").pop()?.split("?")[0];
   }
 
-  if (url.pathname.includes("/jobs/search")) {
-    await handleSearchPage(context);
-  } else if (url.pathname.includes("/jobs/view")) {
-    log.info(`Scraping detailed job view via Tor: ${request.url}`);
+  return {
+    id: jobId || currentUrl,
+    link: currentUrl,
+    title: title || null,
+    companyName: companyName || null,
+    companyLinkedinUrl: companyLinkedinUrl || null,
+    companyLogo: companyLogo || null,
+    location: location || null,
+    postedAt: postedAt || null,
+    applicantsCount: applicantsCount || null,
+    descriptionHtml,
+    descriptionText,
+    seniorityLevel: criteria["Seniority level"] || null,
+    employmentType: criteria["Employment type"] || null,
+    jobFunction: criteria["Job function"] || null,
+    industries: criteria["Industries"] || null,
+  };
+};
+export const requestHandler = async ({ request, $, log, enqueueLinks }) => {
+  const url = new URL(request.url);
 
-    try {
-      await page.waitForSelector(".main-content", { timeout: 10000 });
-    } catch (err) {
+  if (url.pathname.includes("/jobs-guest/jobs/api/seeMoreJobPostings/search")) {
+    log.info(`Querying hidden API list via Residential Proxy...`);
+
+    const jobCards = $(".base-search-card");
+    if (jobCards.length === 0) {
       log.warning(
-        `Timeout waiting for content on ${request.url}. Attempting extraction anyway.`,
+        "No jobs returned. Retrying with a fresh rotating residential IP...",
       );
+      throw new Error("Empty response from endpoint"); // Forces Crawlee to rotate IP and retry
     }
 
-    const jobData = await extractJobDetails(page, request.url);
+    const detailUrls = [];
+    jobCards.each((_, el) => {
+      const targetLink = $(el).find("a.base-card__full-link").attr("href");
+      if (targetLink) detailUrls.push(targetLink);
+    });
 
-    if (jobData && jobData.id) {
+    log.info(`Enqueuing ${detailUrls.length} detail pages into proxy stream.`);
+    await enqueueLinks({
+      urls: detailUrls,
+      userData: { label: "DETAIL" },
+    });
+  } else if (request.userData.label === "DETAIL") {
+    log.info(`Extracting job raw data payload from: ${request.url}`);
+
+    const jobData = extractJobDetails($, request.url);
+
+    if (jobData.title) {
       await saveJobToDatabase({ job: jobData, log });
-    } else {
-      throw new Error(
-        `LinkedIn blocked: Could not parse a valid Job ID from ${request.url}`,
-      );
     }
+
+    await new Promise((res) =>
+      setTimeout(res, Math.floor(Math.random() * 1000) + 1000),
+    );
   }
 };
