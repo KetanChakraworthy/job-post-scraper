@@ -1,20 +1,29 @@
 import { saveJobToDatabase } from "../db/db.js";
 
-const handleSearchPage = async ({ page, enqueueLinks, log }) => {
-  log.info("Processing search listing page...");
+export const handleSearchPage = async ({ page, enqueueLinks, log }) => {
+  log.info("Processing search listing page via Tor...");
+
   try {
     await page.waitForSelector("ul.jobs-search__results-list", {
-      timeout: 10000,
+      timeout: 15000,
     });
   } catch (err) {
-    log.error("Could not load search results.");
+    log.error(
+      "Could not load search results wrapper. LinkedIn might have flagged this Tor node.",
+    );
     return;
   }
 
-  await page.evaluate(async () => {
-    window.scrollBy(0, window.innerHeight);
-    await new Promise((res) => setTimeout(res, 1000));
-  });
+  // Scrolling 3-4 times gives you a broader batch of links per search crawl execution.
+  for (let i = 0; i < 4; i++) {
+    log.info(`Scrolling to fetch more jobs (Batch ${i + 1}/4)...`);
+
+    await page.evaluate(() => {
+      window.scrollBy(0, window.innerHeight);
+    });
+    const fluidScrollPause = Math.floor(Math.random() * 1500) + 1500;
+    await new Promise((res) => setTimeout(res, fluidScrollPause));
+  }
 
   const initialLinks = await page.$$eval(
     "ul.jobs-search__results-list li a.base-card__full-link",
@@ -23,8 +32,27 @@ const handleSearchPage = async ({ page, enqueueLinks, log }) => {
     },
   );
 
-  log.info(`Enqueuing ${initialLinks.length} job details pages.`);
-  await enqueueLinks({ urls: initialLinks });
+  if (initialLinks.length === 0) {
+    log.warning(
+      "No links found with primary selector. Checking fallback public layouts...",
+    );
+    const fallbackLinks = await page.$$eval("a[href*='/jobs/view/']", (links) =>
+      links.map((a) => a.href),
+    );
+    if (fallbackLinks.length > 0) {
+      initialLinks.push(...fallbackLinks);
+    }
+  }
+  const uniqueLinks = [...new Set(initialLinks)];
+
+  log.info(
+    `Enqueuing ${uniqueLinks.length} unique job details pages via Tor pool.`,
+  );
+
+  await enqueueLinks({
+    urls: uniqueLinks,
+    userData: { label: "JOB_DETAIL" },
+  });
 };
 
 const extractJobDetails = async (page, url) => {
@@ -95,22 +123,30 @@ const extractJobDetails = async (page, url) => {
 export const requestHandler = async (context) => {
   const { page, request, log } = context;
   const url = new URL(request.url);
+  const naturalDelay = Math.floor(Math.random() * 2000) + 1500;
+  await new Promise((res) => setTimeout(res, naturalDelay));
 
   if (url.pathname.includes("/jobs/search")) {
     await handleSearchPage(context);
   } else if (url.pathname.includes("/jobs/view")) {
-    log.info(`Scraping detailed job view: ${request.url}`);
+    log.info(`Scraping detailed job view via Tor: ${request.url}`);
 
     try {
-      await page.waitForSelector(".main-content", { timeout: 8000 });
+      await page.waitForSelector(".main-content", { timeout: 10000 });
     } catch (err) {
-      log.warning(`Timeout waiting for content on ${request.url}`);
+      log.warning(
+        `Timeout waiting for content on ${request.url}. Attempting extraction anyway.`,
+      );
     }
 
     const jobData = await extractJobDetails(page, request.url);
 
-    if (jobData.id) {
+    if (jobData && jobData.id) {
       await saveJobToDatabase({ job: jobData, log });
+    } else {
+      log.warning(
+        `Skipped database insert: Could not parse a valid Job ID from ${request.url}`,
+      );
     }
   }
 };
