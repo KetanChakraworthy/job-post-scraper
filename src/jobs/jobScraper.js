@@ -9,7 +9,7 @@ export const handleSearchPage = async ({ page, enqueueLinks, log }) => {
     });
   } catch (err) {
     log.error(
-      "Could not load search results wrapper. LinkedIn might have flagged this Tor node.",
+      "LinkedIn blocked: Could not load search results wrapper. LinkedIn might have flagged this Tor node.",
     );
     return;
   }
@@ -126,6 +126,16 @@ export const requestHandler = async (context) => {
   const naturalDelay = Math.floor(Math.random() * 2000) + 1500;
   await new Promise((res) => setTimeout(res, naturalDelay));
 
+  // Check if we were redirected to a login/checkpoint page
+  const currentUrl = page.url();
+  if (
+    currentUrl.includes("linkedin.com/checkpoint") ||
+    currentUrl.includes("linkedin.com/signup") ||
+    currentUrl.includes("linkedin.com/login")
+  ) {
+    throw new Error("LinkedIn blocked: Redirected to login/checkpoint wall.");
+  }
+
   if (url.pathname.includes("/jobs/search")) {
     await handleSearchPage(context);
   } else if (url.pathname.includes("/jobs/view")) {
@@ -144,8 +154,8 @@ export const requestHandler = async (context) => {
     if (jobData && jobData.id) {
       await saveJobToDatabase({ job: jobData, log });
     } else {
-      log.warning(
-        `Skipped database insert: Could not parse a valid Job ID from ${request.url}`,
+      throw new Error(
+        `LinkedIn blocked: Could not parse a valid Job ID from ${request.url}`,
       );
     }
   }
