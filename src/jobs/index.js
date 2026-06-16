@@ -30,7 +30,7 @@ export const runJobScraper = async ({
     proxyUrls: [proxy1, proxy2, proxy3, proxy4],
   });
   const crawler = new CheerioCrawler({
-    maxRequestsPerCrawl: maxPosts,
+    maxRequestsPerCrawl: maxPosts || 10,
     maxConcurrency: 1,
 
     maxRequestRetries: 3,
