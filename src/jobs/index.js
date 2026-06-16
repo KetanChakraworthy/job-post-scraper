@@ -22,6 +22,7 @@ export const runJobScraper = async ({
   proxy2,
   proxy3,
   proxy4,
+  maxPosts,
 }) => {
   await connectToDatabase();
 
@@ -29,7 +30,7 @@ export const runJobScraper = async ({
     proxyUrls: [proxy1, proxy2, proxy3, proxy4],
   });
   const crawler = new CheerioCrawler({
-    maxRequestsPerCrawl: 15,
+    maxRequestsPerCrawl: maxPosts,
     maxConcurrency: 1,
 
     maxRequestRetries: 3,
