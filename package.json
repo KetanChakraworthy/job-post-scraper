@@ -4,7 +4,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "crawlee": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee",
+    "crawlee_jobs": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_jobs",
+    "crawlee_posts": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_posts",
     "jobspy": "node src/index.js --scraper=jobspy"
   },
   "keywords": [],
@@ -14,6 +15,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "crawlee": "^3.17.0",
+    "dotenv": "^17.4.2",
     "mongodb": "^7.3.0",
     "playwright": "^1.60.0",
     "ts-jobspy": "^2.0.3"

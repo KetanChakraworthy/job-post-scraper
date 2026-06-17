@@ -1,162 +1,156 @@
 import { saveJobToDatabase } from "../db/db.js";
 
-export const handleSearchPage = async ({ page, enqueueLinks, log }) => {
-  log.info("Processing search listing page via Tor...");
+const QUEUE_LINK_LABEL = "DETAIL";
 
-  try {
-    await page.waitForSelector("ul.jobs-search__results-list", {
-      timeout: 15000,
-    });
-  } catch (err) {
-    log.error(
-      "LinkedIn blocked: Could not load search results wrapper. LinkedIn might have flagged this Tor node.",
+export const handleSearchPage = async ({ $, enqueueLinks, log }) => {
+  log.info("Processing search listing page via Cheerio...");
+  const jobCards = $(".base-search-card");
+
+  if (jobCards.length === 0) {
+    log.warning(
+      "No jobs returned on search feed. Checking fallback layouts...",
     );
-    return;
   }
 
-  // Scrolling 3-4 times gives you a broader batch of links per search crawl execution.
-  for (let i = 0; i < 4; i++) {
-    log.info(`Scrolling to fetch more jobs (Batch ${i + 1}/4)...`);
+  const initialLinks = [];
 
-    await page.evaluate(() => {
-      window.scrollBy(0, window.innerHeight);
-    });
-    const fluidScrollPause = Math.floor(Math.random() * 1500) + 1500;
-    await new Promise((res) => setTimeout(res, fluidScrollPause));
-  }
-
-  const initialLinks = await page.$$eval(
-    "ul.jobs-search__results-list li a.base-card__full-link",
-    (links) => {
-      return links.map((a) => a.href);
-    },
-  );
+  jobCards.each((_, el) => {
+    const targetLink = $(el).find("a.base-card__full-link").attr("href");
+    if (targetLink) {
+      initialLinks.push(targetLink);
+    }
+  });
 
   if (initialLinks.length === 0) {
-    log.warning(
-      "No links found with primary selector. Checking fallback public layouts...",
-    );
-    const fallbackLinks = await page.$$eval("a[href*='/jobs/view/']", (links) =>
-      links.map((a) => a.href),
-    );
-    if (fallbackLinks.length > 0) {
-      initialLinks.push(...fallbackLinks);
-    }
+    log.warning("Primary selectors empty. Scraping public fallback links...");
+    $("a[href*='/jobs/view/']").each((_, el) => {
+      const fallbackLink = $(el).attr("href");
+      if (fallbackLink) {
+        initialLinks.push(fallbackLink);
+      }
+    });
   }
+
   const uniqueLinks = [...new Set(initialLinks)];
 
+  if (uniqueLinks.length === 0) {
+    throw new Error("LinkedIn blocked: Empty search page payload received.");
+  }
+
   log.info(
-    `Enqueuing ${uniqueLinks.length} unique job details pages via Tor pool.`,
+    `Enqueuing ${uniqueLinks.length} unique job details pages into proxy stream.`,
   );
 
   await enqueueLinks({
     urls: uniqueLinks,
-    userData: { label: "JOB_DETAIL" },
+    userData: { label: QUEUE_LINK_LABEL },
+    strategy: "all",
   });
 };
 
-const extractJobDetails = async (page, url) => {
-  return await page.evaluate((currentUrl) => {
-    const title = document
-      .querySelector("h1.top-card-layout__title")
-      ?.innerText?.trim();
-    const companyName = document
-      .querySelector("a.topcard__org-name-link")
-      ?.innerText?.trim();
-    const companyLinkedinUrl = document.querySelector(
-      "a.topcard__org-name-link",
-    )?.href;
-    const companyLogo = document.querySelector("img.artdeco-entity-image")?.src;
-    const location = document
-      .querySelector("span.topcard__flavor--bullet")
-      ?.innerText?.trim();
-    const postedAt = document
-      .querySelector("span.posted-time-ago__text")
-      ?.innerText?.trim();
-    const applicantsCount = document
-      .querySelector("span.num-applicants__caption")
-      ?.innerText?.trim();
+const extractJobDetails = ($, currentUrl) => {
+  const title = $("h1.top-card-layout__title, .topcard__title").text().trim();
+  const companyName = $("a.topcard__org-name-link").first().text().trim();
+  const companyLinkedinUrl = $("a.topcard__org-name-link").first().attr("href");
+  const companyLogo = $("img.artdeco-entity-image, img.topcard__logo").attr(
+    "src",
+  );
 
-    const descContainer = document.querySelector(".description__text");
-    const descriptionHtml = descContainer
-      ? descContainer.innerHTML.trim()
-      : null;
-    const descriptionText = descContainer
-      ? descContainer.innerText.trim()
-      : null;
+  // LinkedIn guest pages use slightly fluid selectors for location & time
+  const location = $("span.topcard__flavor--bullet, .topcard__flavor--last")
+    .first()
+    .text()
+    .trim();
+  const postedAt = $("span.posted-time-ago__text, .topcard__flavor--metadata")
+    .first()
+    .text()
+    .trim();
+  const applicantsCount = $(
+    "span.num-applicants__caption, .topcard__flavor--applicants",
+  )
+    .text()
+    .trim();
 
-    const criteriaItems = Array.from(
-      document.querySelectorAll(".description__job-criteria-item"),
-    );
-    const criteria = {};
-    criteriaItems.forEach((item) => {
-      const header = item
-        .querySelector(".description__job-criteria-subheader")
-        ?.innerText?.trim();
-      const value = item
-        .querySelector(".description__job-criteria-text")
-        ?.innerText?.trim();
-      if (header && value) {
-        criteria[header] = value;
-      }
-    });
+  const descContainer = $(".description__text");
+  const descriptionHtml = descContainer.length
+    ? descContainer.html().trim()
+    : null;
+  const descriptionText = descContainer.length
+    ? descContainer.text().trim()
+    : null;
 
-    return {
-      id: currentUrl.split("/view/")[1]?.split("?")[0] || null,
-      link: currentUrl,
-      title: title || null,
-      companyName: companyName || null,
-      companyLinkedinUrl: companyLinkedinUrl || null,
-      companyLogo: companyLogo || null,
-      location: location || null,
-      postedAt: postedAt || null,
-      applicantsCount: applicantsCount || null,
-      descriptionHtml,
-      descriptionText,
-      seniorityLevel: criteria["Seniority level"] || null,
-      employmentType: criteria["Employment type"] || null,
-      jobFunction: criteria["Job function"] || null,
-      industries: criteria["Industries"] || null,
-    };
-  }, url);
-};
-export const requestHandler = async (context) => {
-  const { page, request, log } = context;
-  const url = new URL(request.url);
-  const naturalDelay = Math.floor(Math.random() * 2000) + 1500;
-  await new Promise((res) => setTimeout(res, naturalDelay));
+  // Map the bottom criteria table items (Employment Type, Seniority, etc.)
+  const criteria = {};
+  $(".description__job-criteria-item").each((_, item) => {
+    const header = $(item)
+      .find(".description__job-criteria-subheader")
+      .text()
+      .trim();
+    const value = $(item).find(".description__job-criteria-text").text().trim();
+    if (header && value) {
+      criteria[header] = value;
+    }
+  });
 
-  // Check if we were redirected to a login/checkpoint page
-  const currentUrl = page.url();
-  if (
-    currentUrl.includes("linkedin.com/checkpoint") ||
-    currentUrl.includes("linkedin.com/signup") ||
-    currentUrl.includes("linkedin.com/login")
-  ) {
-    throw new Error("LinkedIn blocked: Redirected to login/checkpoint wall.");
+  // Safe fallback to grab Job ID from either URL format style
+  let jobId = null;
+  if (currentUrl.includes("/view/")) {
+    jobId = currentUrl.split("/view/")[1]?.split("?")[0];
+  } else {
+    jobId = currentUrl.split("-").pop()?.split("?")[0];
   }
 
-  if (url.pathname.includes("/jobs/search")) {
-    await handleSearchPage(context);
-  } else if (url.pathname.includes("/jobs/view")) {
-    log.info(`Scraping detailed job view via Tor: ${request.url}`);
+  return {
+    id: jobId || currentUrl,
+    link: currentUrl,
+    title: title || null,
+    companyName: companyName || null,
+    companyLinkedinUrl: companyLinkedinUrl || null,
+    companyLogo: companyLogo || null,
+    location: location || null,
+    postedAt: postedAt || null,
+    applicantsCount: applicantsCount || null,
+    descriptionHtml,
+    descriptionText,
+    seniorityLevel: criteria["Seniority level"] || null,
+    employmentType: criteria["Employment type"] || null,
+    jobFunction: criteria["Job function"] || null,
+    industries: criteria["Industries"] || null,
+  };
+};
+export const requestHandler = async ({ request, $, log, enqueueLinks }) => {
+  const url = new URL(request.url);
 
-    try {
-      await page.waitForSelector(".main-content", { timeout: 10000 });
-    } catch (err) {
-      log.warning(
-        `Timeout waiting for content on ${request.url}. Attempting extraction anyway.`,
-      );
-    }
+  if (url.pathname.includes("/jobs-guest/jobs/api/seeMoreJobPostings/search")) {
+    await handleSearchPage({ $, enqueueLinks, log });
+  } else if (request.userData.label === QUEUE_LINK_LABEL) {
+    log.info(`Extracting job raw data payload from: ${request.url}`);
 
-    const jobData = await extractJobDetails(page, request.url);
+    const jobData = extractJobDetails($, request.url);
 
-    if (jobData && jobData.id) {
+    if (jobData.title) {
       await saveJobToDatabase({ job: jobData, log });
-    } else {
-      throw new Error(
-        `LinkedIn blocked: Could not parse a valid Job ID from ${request.url}`,
-      );
     }
+
+    await new Promise((res) =>
+      setTimeout(res, Math.floor(Math.random() * 1000) + 1000),
+    );
+  }
+};
+
+export const errorHandler = async ({ error, session, log }) => {
+  const errorMessage = error.message.toLowerCase();
+
+  if (
+    errorMessage.includes("linkedin blocked") ||
+    errorMessage.includes("login wall") ||
+    errorMessage.includes("econnreset") ||
+    errorMessage.includes("econnrefused") ||
+    errorMessage.includes("connection closed")
+  ) {
+    log.warning(
+      `🚨 Proxy IP flagged or connection dropped by LinkedIn. Retiring proxy session...`,
+    );
+    session?.retire();
   }
 };
