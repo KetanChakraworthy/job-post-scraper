@@ -1,57 +1,50 @@
 import { saveJobToDatabase } from "../db/db.js";
 
-export const handleSearchPage = async ({ page, enqueueLinks, log }) => {
-  log.info("Processing search listing page via Tor...");
+const QUEUE_LINK_LABEL = "DETAIL";
 
-  try {
-    await page.waitForSelector("ul.jobs-search__results-list", {
-      timeout: 15000,
-    });
-  } catch (err) {
-    log.error(
-      "LinkedIn blocked: Could not load search results wrapper. LinkedIn might have flagged this Tor node.",
+export const handleSearchPage = async ({ $, enqueueLinks, log }) => {
+  log.info("Processing search listing page via Cheerio...");
+  const jobCards = $(".base-search-card");
+
+  if (jobCards.length === 0) {
+    log.warning(
+      "No jobs returned on search feed. Checking fallback layouts...",
     );
-    return;
   }
 
-  // Scrolling 3-4 times gives you a broader batch of links per search crawl execution.
-  for (let i = 0; i < 4; i++) {
-    log.info(`Scrolling to fetch more jobs (Batch ${i + 1}/4)...`);
+  const initialLinks = [];
 
-    await page.evaluate(() => {
-      window.scrollBy(0, window.innerHeight);
-    });
-    const fluidScrollPause = Math.floor(Math.random() * 1500) + 1500;
-    await new Promise((res) => setTimeout(res, fluidScrollPause));
-  }
-
-  const initialLinks = await page.$$eval(
-    "ul.jobs-search__results-list li a.base-card__full-link",
-    (links) => {
-      return links.map((a) => a.href);
-    },
-  );
+  jobCards.each((_, el) => {
+    const targetLink = $(el).find("a.base-card__full-link").attr("href");
+    if (targetLink) {
+      initialLinks.push(targetLink);
+    }
+  });
 
   if (initialLinks.length === 0) {
-    log.warning(
-      "No links found with primary selector. Checking fallback public layouts...",
-    );
-    const fallbackLinks = await page.$$eval("a[href*='/jobs/view/']", (links) =>
-      links.map((a) => a.href),
-    );
-    if (fallbackLinks.length > 0) {
-      initialLinks.push(...fallbackLinks);
-    }
+    log.warning("Primary selectors empty. Scraping public fallback links...");
+    $("a[href*='/jobs/view/']").each((_, el) => {
+      const fallbackLink = $(el).attr("href");
+      if (fallbackLink) {
+        initialLinks.push(fallbackLink);
+      }
+    });
   }
+
   const uniqueLinks = [...new Set(initialLinks)];
 
+  if (uniqueLinks.length === 0) {
+    throw new Error("LinkedIn blocked: Empty search page payload received.");
+  }
+
   log.info(
-    `Enqueuing ${uniqueLinks.length} unique job details pages via Tor pool.`,
+    `Enqueuing ${uniqueLinks.length} unique job details pages into proxy stream.`,
   );
 
   await enqueueLinks({
     urls: uniqueLinks,
-    userData: { label: "JOB_DETAIL" },
+    userData: { label: QUEUE_LINK_LABEL },
+    strategy: "all",
   });
 };
 
@@ -129,28 +122,8 @@ export const requestHandler = async ({ request, $, log, enqueueLinks }) => {
   const url = new URL(request.url);
 
   if (url.pathname.includes("/jobs-guest/jobs/api/seeMoreJobPostings/search")) {
-    log.info(`Querying hidden API list via Residential Proxy...`);
-
-    const jobCards = $(".base-search-card");
-    if (jobCards.length === 0) {
-      log.warning(
-        "No jobs returned. Retrying with a fresh rotating residential IP...",
-      );
-      throw new Error("Empty response from endpoint"); // Forces Crawlee to rotate IP and retry
-    }
-
-    const detailUrls = [];
-    jobCards.each((_, el) => {
-      const targetLink = $(el).find("a.base-card__full-link").attr("href");
-      if (targetLink) detailUrls.push(targetLink);
-    });
-
-    log.info(`Enqueuing ${detailUrls.length} detail pages into proxy stream.`);
-    await enqueueLinks({
-      urls: detailUrls,
-      userData: { label: "DETAIL" },
-    });
-  } else if (request.userData.label === "DETAIL") {
+    await handleSearchPage({ $, enqueueLinks, log });
+  } else if (request.userData.label === QUEUE_LINK_LABEL) {
     log.info(`Extracting job raw data payload from: ${request.url}`);
 
     const jobData = extractJobDetails($, request.url);
@@ -162,5 +135,22 @@ export const requestHandler = async ({ request, $, log, enqueueLinks }) => {
     await new Promise((res) =>
       setTimeout(res, Math.floor(Math.random() * 1000) + 1000),
     );
+  }
+};
+
+export const errorHandler = async ({ error, session, log }) => {
+  const errorMessage = error.message.toLowerCase();
+
+  if (
+    errorMessage.includes("linkedin blocked") ||
+    errorMessage.includes("login wall") ||
+    errorMessage.includes("econnreset") ||
+    errorMessage.includes("econnrefused") ||
+    errorMessage.includes("connection closed")
+  ) {
+    log.warning(
+      `🚨 Proxy IP flagged or connection dropped by LinkedIn. Retiring proxy session...`,
+    );
+    session?.retire();
   }
 };

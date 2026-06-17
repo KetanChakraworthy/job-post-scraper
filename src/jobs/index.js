@@ -1,37 +1,26 @@
 import { CheerioCrawler, Dataset, ProxyConfiguration } from "crawlee";
 import { client, connectToDatabase } from "../db/db.js";
-import { requestHandler } from "./jobScraper.js";
-
-const forceTorNewIdentity = async () => {
-  return new Promise((resolve) => {
-    const socket = net.connect({ port: 9051, host: "127.0.0.1" }, () => {
-      socket.write('AUTHENTICATE ""\r\n');
-      socket.write("SIGNAL NEWNYM\r\n");
-      socket.write("QUIT\r\n");
-    });
-
-    socket.on("data", () => socket.end());
-    socket.on("end", () => resolve(true));
-    socket.on("error", () => resolve(false));
-  });
-};
+import { errorHandler, requestHandler } from "./jobScraper.js";
 
 export const runJobScraper = async ({
-  startUrl,
-  proxy1,
-  proxy2,
-  proxy3,
-  proxy4,
+  startUrls,
   maxJobs,
+  totalSearchPagesNeeded,
+  proxies,
 }) => {
   await connectToDatabase();
+  const calculatedMaxRequests = maxJobs + totalSearchPagesNeeded;
+  let safeConcurrency = 2;
+  if (maxJobs > 50 && maxJobs <= 500) safeConcurrency = 3;
+  if (maxJobs > 500) safeConcurrency = 5;
 
   const proxyConfiguration = new ProxyConfiguration({
-    proxyUrls: [proxy1, proxy2, proxy3, proxy4],
+    proxyUrls: proxies,
   });
+
   const crawler = new CheerioCrawler({
-    maxRequestsPerCrawl: maxJobs || 10,
-    maxConcurrency: 1,
+    maxRequestsPerCrawl: calculatedMaxRequests || 1000,
+    maxConcurrency: safeConcurrency,
 
     maxRequestRetries: 3,
     maxSessionRotations: 5,
@@ -54,28 +43,7 @@ export const runJobScraper = async ({
     ],
 
     requestHandler,
-    errorHandler: async ({ error, session, log }) => {
-      // Check if the error thrown came from our custom LinkedIn block handler
-      if (
-        error.message.includes("LinkedIn blocked") ||
-        error.message.includes("login wall")
-      ) {
-        log.warning(`🚨 Tor Node Blocked! Requesting fresh Tor circuit...`);
-
-        // 1. Retires Crawlee's internal profile session
-        session?.retire();
-
-        // 2. Issue the system command to get a brand new Tor network IP address
-        const rotationSuccess = await forceTorNewIdentity();
-        if (rotationSuccess) {
-          log.info(
-            `🔄 Success: Tor identity cycled. Waiting for network stabilisation...`,
-          );
-          // Give the server a 2-second breather to establish the new global circuit path safely
-          await new Promise((res) => setTimeout(res, 2000));
-        }
-      }
-    },
+    errorHandler,
     failedRequestHandler({ request, log }) {
       log.error(
         `❌ Request ${request.url} failed permanently after multiple Tor IP rotations.`,
@@ -83,7 +51,7 @@ export const runJobScraper = async ({
     },
   });
 
-  await crawler.run(startUrl);
+  await crawler.run(startUrls);
 
   await client.close();
   console.log("Finished deep scraping! MongoDB connection closed.");

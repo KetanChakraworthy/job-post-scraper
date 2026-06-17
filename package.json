@@ -4,7 +4,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "crawlee": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee",
+    "crawlee_jobs": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_jobs",
+    "crawlee_posts": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_posts",
     "jobspy": "node src/index.js --scraper=jobspy"
   },
   "keywords": [],
