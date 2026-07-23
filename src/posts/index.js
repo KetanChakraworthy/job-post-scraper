@@ -63,16 +63,10 @@ export async function runPostScraper({
       "--disable-dev-shm-usage",
       "--disable-web-security",
       "--disable-features=IsolateOrigins,site-per-process",
-      "--disable-gpu",
-      "--disable-setuid-sandbox",
-      "--no-zygote",
-      "--single-process",
     ],
   };
 
   // Add proxy if provided
-  // Add proxy if provided - try without proxy first if it fails
-  let useProxy = false;
   if (proxies && proxies.length > 0) {
     const proxyUrl = proxies[0];
     const proxyMatch = proxyUrl.match(/http:\/\/(.*):(.*)@(.*):(\d+)/);
@@ -83,27 +77,13 @@ export async function runPostScraper({
         username: proxyMatch[1],
         password: proxyMatch[2],
       };
-      useProxy = true;
       console.log(`🔒 Using proxy: ${proxyMatch[3]}:${proxyMatch[4]}\n`);
     } else {
       console.log("⚠️ Invalid proxy format, running without proxy\n");
     }
-  } else {
-    console.log("No proxies provided, running directly\n");
   }
 
-  let browser;
-  try {
-    browser = await chromium.launch(launchOptions);
-  } catch (error) {
-    if (useProxy) {
-      console.log("❌ Failed with proxy, trying without proxy...");
-      delete launchOptions.proxy;
-      browser = await chromium.launch(launchOptions);
-    } else {
-      throw error;
-    }
-  }
+  const browser = await chromium.launch(launchOptions);
 
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
@@ -124,46 +104,10 @@ export async function runPostScraper({
   });
 
   // First go to LinkedIn to set domain context
-  // First go to LinkedIn to set domain context - with retry
-  let retries = 0;
-  const maxRetries = 3;
-
-  while (retries < maxRetries) {
-    try {
-      await page.goto("https://www.linkedin.com/", {
-        waitUntil: "domcontentloaded",
-        timeout: 30000,
-      });
-      break;
-    } catch (error) {
-      retries++;
-      console.log(`⚠️ Connection attempt ${retries} failed: ${error.message}`);
-
-      if (retries >= maxRetries) {
-        console.log(
-          "❌ All connection attempts failed. Check your proxy or network.",
-        );
-        await browser.close();
-        return;
-      }
-
-      // Try without proxy on next attempt
-      if (useProxy && retries === 2) {
-        console.log("🔄 Switching to direct connection...");
-        delete launchOptions.proxy;
-        await browser.close();
-        browser = await chromium.launch(launchOptions);
-        const newContext = await browser.newContext({
-          viewport: { width: 1920, height: 1080 },
-          userAgent:
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-        });
-        page = await newContext.newPage();
-      }
-
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
+  await page.goto("https://www.linkedin.com/", {
+    waitUntil: "domcontentloaded",
+    timeout: 15000,
+  });
 
   // Add cookies
   await context.addCookies(cookies);
