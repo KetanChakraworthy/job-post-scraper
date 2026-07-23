@@ -44,24 +44,31 @@ const saveJobToDatabase = async ({ job, log, scraperType = "CRAWLEE" }) => {
     log.error(`Failed to save job ID ${job.id} to MongoDB: ${err.message}`);
   }
 };
-const savePostToDatabase = async ({ post, log, scraperType = "CRAWLEE" }) => {
+
+const savePostToDatabase = async ({ post, log, scraperType = "CUSTOM" }) => {
   if (!log) log = console;
   try {
+    // Use post URL as unique identifier (or generate one)
+    const postId =
+      post.url ||
+      `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     await postCollection.updateOne(
-      { id: post?.id || post.index },
+      { id: postId },
       {
         $set: {
           ...post,
+          id: postId,
           scraperType,
+          scrapedAt: new Date(),
           updatedAt: new Date(),
         },
-        $setOnInsert: { scrapedAt: new Date() },
       },
       { upsert: true },
     );
-    log.info(`Successfully upserted job ID ${post.id} to MongoDB.`);
+    log.info(`Successfully saved post to MongoDB.`);
   } catch (err) {
-    log.error(`Failed to save job ID ${post.id} to MongoDB: ${err.message}`);
+    log.error(`Failed to save post to MongoDB: ${err.message}`);
   }
 };
 

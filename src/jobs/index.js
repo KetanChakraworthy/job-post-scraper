@@ -1,5 +1,4 @@
 import { CheerioCrawler, Dataset, ProxyConfiguration } from "crawlee";
-import { client, connectToDatabase } from "../db/db.js";
 import { errorHandler, requestHandler } from "./jobScraper.js";
 import {
   fetchReqConfig,
@@ -13,7 +12,6 @@ export const runJobScraper = async ({
   totalSearchPagesNeeded,
   proxies,
 }) => {
-  await connectToDatabase();
   const calculatedMaxRequests = maxJobs + totalSearchPagesNeeded;
   let safeConcurrency = 2;
   if (maxJobs > 50 && maxJobs <= 500) safeConcurrency = 3;
@@ -41,6 +39,5 @@ export const runJobScraper = async ({
 
   await crawler.run(startUrls);
 
-  await client.close();
   console.log("Finished deep scraping! MongoDB connection closed.");
 };

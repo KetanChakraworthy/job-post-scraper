@@ -4,6 +4,7 @@ import { runJobspyScraper } from "./jobs/jopspy.js";
 import { runPostScraper } from "./posts/index.js";
 import { createAccountPool } from "./utils/sessionPool.js";
 import { extractLinkedInCookies } from "./posts/extractCookies.js";
+import { client, connectToDatabase } from "./db/db.js";
 
 configDotenv();
 
@@ -94,6 +95,7 @@ async function main() {
   const targetScraper = getScraperArgument();
 
   console.log("=".repeat(50));
+  await connectToDatabase();
   switch (targetScraper) {
     case "crawlee_jobs":
       console.log("Starting job scraper...");
@@ -106,7 +108,7 @@ async function main() {
       config.profileUrls = [
         "https://www.linkedin.com/in/pranav-pathak-a41821209/",
       ];
-      await runPostScraper(config);
+      await runPostScraper({ ...config, postsPerProfile: 5 });
       console.log("Ending posts scraper...");
       break;
     case "jobspy":
@@ -123,6 +125,7 @@ async function main() {
       console.log('Please use: "npm run crawlee" or "npm run jobspy"');
       process.exit(1);
   }
+  await client.close();
   console.log("=".repeat(50));
 }
 
