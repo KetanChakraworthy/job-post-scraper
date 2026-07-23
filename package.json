@@ -6,7 +6,9 @@
   "scripts": {
     "crawlee_jobs": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_jobs",
     "crawlee_posts": "CRAWLEE_MEMORY_MBYTES=2048 node src/index.js --scraper=crawlee_posts",
-    "jobspy": "node src/index.js --scraper=jobspy"
+    "jobspy": "node src/index.js --scraper=jobspy",
+    "gen_session_pool": "node src/index.js --scraper=gen_session_pool",
+    "extract-linkedin-cookies": "node src/index.js --scraper=extract-linkedin-cookies"
   },
   "keywords": [],
   "author": "",
@@ -16,8 +18,11 @@
     "cheerio": "^1.2.0",
     "crawlee": "^3.17.0",
     "dotenv": "^17.4.2",
+    "fs-extra": "^11.3.5",
     "mongodb": "^7.3.0",
     "playwright": "^1.60.0",
+    "playwright-stealth": "^0.0.1",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "ts-jobspy": "^2.0.3"
   }
 }

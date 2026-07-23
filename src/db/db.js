@@ -4,7 +4,7 @@ import { MongoClient } from "mongodb";
 const MONGO_URI = "mongodb://localhost:27017";
 const DB_NAME = "linkedin_scraper";
 const JOB_COLLECTION_NAME = "jobs";
-const POSTS_COLLECTION_NAME = "jobs";
+const POSTS_COLLECTION_NAME = "posts";
 
 let client;
 let jobCollection;
@@ -44,5 +44,25 @@ const saveJobToDatabase = async ({ job, log, scraperType = "CRAWLEE" }) => {
     log.error(`Failed to save job ID ${job.id} to MongoDB: ${err.message}`);
   }
 };
+const savePostToDatabase = async ({ post, log, scraperType = "CRAWLEE" }) => {
+  if (!log) log = console;
+  try {
+    await postCollection.updateOne(
+      { id: post?.id || post.index },
+      {
+        $set: {
+          ...post,
+          scraperType,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: { scrapedAt: new Date() },
+      },
+      { upsert: true },
+    );
+    log.info(`Successfully upserted job ID ${post.id} to MongoDB.`);
+  } catch (err) {
+    log.error(`Failed to save job ID ${post.id} to MongoDB: ${err.message}`);
+  }
+};
 
-export { client, connectToDatabase, saveJobToDatabase };
+export { client, connectToDatabase, saveJobToDatabase, savePostToDatabase };
