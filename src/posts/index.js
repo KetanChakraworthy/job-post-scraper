@@ -3,9 +3,7 @@ import fs from "fs";
 import { savePostToDatabase } from "../db/db.js";
 
 function loadCookies() {
-  const COOKIE_FILE =
-    "/Users/ketan_ch_drapcode/projects/job-post-scraper/src/posts/linkedin_cookies.json";
-
+  const COOKIE_FILE = process.env.COOKIE_PATH;
   try {
     const data = JSON.parse(fs.readFileSync(COOKIE_FILE, "utf8"));
     let cookies = data.cookies || data;
@@ -65,6 +63,10 @@ export async function runPostScraper({
       "--disable-dev-shm-usage",
       "--disable-web-security",
       "--disable-features=IsolateOrigins,site-per-process",
+      "--disable-gpu",
+      "--disable-setuid-sandbox",
+      "--no-zygote",
+      "--single-process",
     ],
   };
 
